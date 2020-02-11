@@ -1,33 +1,58 @@
+function PabDOM() {}
+
+PabDOM.prototype.render = function (component, selector) {
+    const root = document.querySelector(selector)
+    let child = root.lastElementChild;
+    while (child) {
+        root.removeChild(child);
+        child = root.lastElementChild;
+    }
+    const { context, nodes } = component
+    nodes.forEach(node => {
+        root.appendChild(node)
+    })
+    context.render()
+    this.update()
+}
+
+PabDOM.prototype.reRender = function (component, selector) {
+    const root = document.querySelector(selector).parentElement
+    let child = root.lastElementChild;
+    while (child) {
+        root.removeChild(child);
+        child = root.lastElementChild;
+    }
+    component.nodes.forEach(node => {
+        root.appendChild(node)
+    })
+}
+
+PabDOM.prototype.update = function () {
+    document.body.addEventListener('update', (e) => {
+        const component = e.detail
+        const { template, pabThree, definitions } = e.detail
+        const cmp = component.parseTemplate(template, definitions)
+        this.reRender(cmp, `[pab-three=${component.pabThree}`)
+        cmp.context.render()
+    })
+}
+
 function Pab({ style, template, script, definitions }) {
     this.script = script
     this.style = style
     this.template = template
     this.definitions = definitions
-    this.build = function () {
-        const root = document.querySelector('#root')
-        const nodes = this.genStatic(this)
-        let child = root.lastElementChild;
-        while (child) {
-            root.removeChild(child);
-            child = root.lastElementChild;
-        }
-        nodes.forEach(node => {
-            root.appendChild(node, node)
-        })
-        this.script(
-            this.definitions,
-            {
-                setState: this.setState.bind(this),
-                onClick: this.onClick.bind(this)
-            }
-        )
-    }
+    return this.parseTemplate(template, definitions)
 }
 
-Pab.prototype.htmlToElement = function (html) {
-    var template = document.createElement('template');
-    template.innerHTML = html;
-    return template.content.childNodes;
+Pab.prototype.render = function() {
+    this.script(
+        this.definitions,
+        {
+            setState: this.setState.bind(this),
+            onClick: this.onClick.bind(this)
+        }
+    )
 }
 
 Pab.prototype.toNodes = html =>
@@ -35,34 +60,37 @@ Pab.prototype.toNodes = html =>
 
 Pab.prototype.parseTemplate = function (template, definitions) {
     const variables = template.match(/(?<={)(.*\n?)(?=})/g)
-    let parsed = template
-    variables.forEach(variable => {
-        const replace = `{${variable}}`
-        const regex = new RegExp(replace, 'g')
-        parsed = parsed.replace(regex, definitions[variable])
-    })
-    return this.toNodes(parsed)
+    if (!variables.find(v => v.includes('nodes'))) {
+        let parsed = template
+        variables.forEach(variable => {
+            const replace = `{${variable}}`
+            const regex = new RegExp(replace, 'g')
+            parsed = parsed.replace(regex, definitions[variable])
+        })
+        const nodes = this.toNodes(parsed)
+        this.pabThree = Math.random()
+        nodes[0].setAttribute('pab-three', this.pabThree)
+        return {
+            nodes, context: this
+        }
+    }
+    console.log('NO INCLUYE', variables)
+    return {
+        nodes: this.toNodes(template),
+        context: this,
+    }
 }
 
-Pab.prototype.genStatic = function (context) {
-    document.querySelector('style').innerHTML += this.style
-    const template = this.parseTemplate(context.template, context.definitions)
-    // return `
-    //     <style>
-    //         ${context.style}
-    //     </style>
-    //     <div>
-    //         ${template}
-    //     </div>
-    // `
-    return template
+Pab.prototype.emit = function () {
+    const event = new CustomEvent('update', { detail: this })
+    document.body.dispatchEvent(event)
 }
 
 Pab.prototype.setState = function (key, value) {
     const prev = this.definitions[key]
     this.definitions[key] = value
     if (JSON.stringify(prev) !== JSON.stringify(value)) {
-        this.build()
+        this.emit()
     }
     return prev
 }
@@ -71,18 +99,34 @@ Pab.prototype.onClick = function (selector, callback) {
     document.querySelector(selector).addEventListener('click', callback)
 }
 
+
+const TestComponent2 = new Pab({
+    definitions: {
+        dogName: 'canopillo',
+    },
+    script: ({ dogName }, { setState, onClick }) => {
+        console.log('SCRIPT CALLED')
+        onClick('.canopillo', () => {
+            setState('dogName', dogName === 'blue' ? 'red' : 'blue')
+        })
+    },
+    style: `
+    `,
+    template: `
+        <div class="canopillo">{canopillo}</div>
+    `
+})
+
+console.log(TestComponent2)
+
 const TestComponent = new Pab({
     definitions: {
         color: 'yellow',
-        patata: 'patata'
     },
-    script: ({ color, patata }, { setState, onClick }) => {
-        onClick('.red', () => {
-            setState('color', color === 'yellow' ? 'red' : 'yellow')
-        })
-
-        onClick('.purple', () => {
-            setState('patata', patata === 'blue' ? 'red' : 'blue')
+    script: ({ color }, { setState, onClick }) => {
+        console.log('SCRIPT CALLED')
+        onClick('.yellow', () => {
+            setState('color', color === 'blue' ? 'red' : 'blue')
         })
     },
     style: `
@@ -92,10 +136,10 @@ const TestComponent = new Pab({
         }
     `,
     template: `
-        <div class="red">{color}</div>
-        <div class="purple">{patata}</div>
+        <div class="yellow">${JSON.stringify(TestComponent2)}</div>
     `
 })
+
 
 // const TestComponent2 = new Pab({
 //     definitions: {
@@ -119,6 +163,7 @@ const TestComponent = new Pab({
 //     }
 // })
 
+const DOM = new PabDOM()
 
-TestComponent.build()
+DOM.render(TestComponent, '#root')
 // TestComponent2.build()
